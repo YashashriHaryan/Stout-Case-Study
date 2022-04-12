@@ -1,0 +1,270 @@
+---
+title: "Case Study 1"
+author: "Yashashri Haryan"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+## Describe the dataset and any issues with it
+
+The data set is about loans made to people through the lending club platform, which allows individuals to lend to other individuals. There are various numeric and character variables in the data set. 
+
+The issue with data set is there are few columns which have blank values. This will create a problem for us while analyzing the data. So, before data analysis, we will have to perform data cleaning on this data set like substituting the blank values with NA, so that, if in later stages we want to consider only the rows which have sensible values then we can keep discard the rows with NA. 
+
+One more issue I observed is some of the variables such as state, homeownership, verified_income have data type as ‘character’ and some are integer. So, while modelling algorithms on this data set we might have to consider the variables only having data type as numeric. 
+
+Also for visualization, since the variables do not have same data type, we can convert them into factors to do the visualizing. 
+
+## Generate a minimum of 5 unique visualizations using the data and write a brief description of your observations. Additionally, all attempts should be made to make the visualizations visually appealing
+
+```{r}
+#install.packages('ggthemes')
+#install.packages('GGally')
+#install.packages('DT')
+#install.packages('sqldf')
+#install.packages('plotly')
+#install.packages('DescTools')
+library(tidyverse)
+library(ggthemes)
+library(corrplot)
+library(GGally)
+library(DT)
+library(caret)
+library(pROC)
+library(randomForest)
+library(sqldf)
+library(plotly)
+library(DescTools)
+#loading the csv file and replacing the blank spaces with NA
+loan = read.csv(file ="loans_full_schema.csv", na="", stringsAsFactors=TRUE);
+head(loan)
+str(loan)
+summary(loan)
+
+```
+
+## Visualizations on the data set
+
+```{r}
+#Visualization 1
+ggplot(data=loan, aes(loan_amount))+geom_histogram(bins = 40,color="blue",fill="blue")
+```
+
+The above graph shows the distribution of loan amounts. It appears that a majority of the loans are between $5,000 and $20,000
+
+```{r}
+#Visualization 2
+Desc(loan$loan_amount, main = "Loan amount distribution", plotit = TRUE)
+```
+
+This graph helps us to go into more detail of the breakdown.It is interesting to note the spike at the maximum loan amount
+
+```{r}
+#Visualization 3
+loan %>%
+        count(loan_status) %>%
+        ggplot(aes(x = reorder(loan_status , desc(n)) , y = n , fill = n)) + 
+        geom_col() + 
+        coord_flip() + 
+        labs(x = 'Loan Status' , y = 'Count')
+
+```
+
+The above bar graph demonstrates a count of the loan status variable giving us an idea of the distribution of the different loan status amounts.In our case a large majority of the data  indicates that the loans are current and a much smaller percentage of the amount is charged off.
+
+
+```{r}
+#Visualization 4
+ggplot(data = loan, aes(x=state, fill=loan_status)) +
+  labs(x="State", y="Total Loan issued") +
+  geom_bar() +
+  coord_flip()
+```
+
+The above graph shows a distribution of the different loan status types by each state. Most of the states like TX,GA,CA have current and fully_paid loan status. Other loan status are very less compared to current and fully_paid.
+
+```{r}
+#Visualization 5 
+ggplot(data=loan, aes(grade,interest_rate,fill=grade))+geom_boxplot(outlier.color = "blue")+labs(title="Box plot of Interest rate")
+```
+
+The above graph indicates that as the grade becomes less the interest rate increases which would make sense as these loans would most likely be more risky.
+
+```{r}
+#Visualization 6
+ggplot(loan, aes(x=grade, y=loan_amount, fill=grade)) +
+  stat_summary(fun.y="sum", geom="bar") +
+  labs(y ="Total Loan Amount",title="Total loan amount based on loan grade")
+```
+
+This graph indicates that typically grades of B and C tend to have a higher loan amount.This could be indicative of riskier loans.
+
+```{r}
+#Visualization 7
+Desc(loan$loan_purpose, main = "Loan purposes", plotit = TRUE)
+```
+
+From the above visualization, we can say that Debt consolidation is by far the most funded and applied for reason.
+
+## Create a feature set and create a model which predicts interest_rate using at least 2 algorithms. Describe any data cleansing that must be performed and analysis when examining the data.
+
+
+```{r}
+#Reading csv file and doing exploratory data analysis
+loan = read.csv(file ="loans_full_schema.csv", na="", stringsAsFactors=FALSE);
+str(loan)
+#identifying the numeric columns
+loan_num = unlist(lapply(loan, is.numeric))
+loan_num
+#using the logical vector to take s subset of our data frame
+loan_data = loan [ , loan_num]
+loan_data
+#finding the correlation between the variables
+cor(loan_data)
+```
+
+I am going to model linear regression and ridge regression on the dataset. To model these algorithms we need all our variables to be numeric. Hence, I have used lapply function to identify all the numeric variables and then created a data frame with these numeric variables to perform my analysis.
+
+## Linear Regression
+
+```{r}
+#Splitting data set into 70% train set and 30% test set
+
+loan_dt  = sort(sample(nrow(loan_data),nrow(loan_data)*0.7))
+train_set <- loan_data[loan_dt,]
+test_set <- loan_data[-loan_dt,]
+
+#removing rows of data having NA in them
+train_set = na.omit(train_set)
+test_set = na.omit(test_set)
+
+#Linear Regression
+model1 = lm(interest_rate ~ . , data = train_set)
+summary(model1)
+```
+I split the data into training and testing data set. For the part of data cleaning, I am omitting all the NA values.
+
+I initially created the linear regression model using all the numeric predictors and the summary function help us understand which variables are more important.The variables with p-value less than 0.05 are important so below are the variables that we will be using to create my linear regression model.
+Variables:
+annual_income, delinq_2y,inquires_last_12m, total_credit_utilized, accounts_opened_24m, total_debit_limit, num_cc_carrying_balance, num_mort_accounts, account_never_delinq_percent, loan_amount, term, installment
+
+```{r}
+#Linear regression on important variables
+lm_model = lm(interest_rate ~ annual_income+delinq_2y+inquiries_last_12m+total_credit_utilized+accounts_opened_24m+total_debit_limit+num_cc_carrying_balance+num_mort_accounts+account_never_delinq_percent+loan_amount+term+installment , data = train_set)
+
+summary(lm_model)
+
+```
+The R-squared is 0.56, adjusted R-squared is 0.56 and the residual standard error is 3.30
+
+```{r}
+##Making prediction on the test data 
+lm_pred = predict(lm_model, test_set, type="response")
+mean((lm_pred-test_set$interest_rate)^2)
+```
+The train error for linear regression model is 10.77
+
+## Ridge Regression
+
+
+```{r}
+#Ridge Regression
+library(glmnet) 
+#Choose lambda using cross-validation
+set.seed(1)
+#Set up matrices needed for the glmnet functions
+train_matrix = model.matrix(interest_rate ~ annual_income + delinq_2y + inquiries_last_12m + 
+    total_credit_utilized + accounts_opened_24m + total_debit_limit + 
+    num_cc_carrying_balance + num_mort_accounts + account_never_delinq_percent + 
+    loan_amount + term + installment, data = train_set)
+test_matrix = model.matrix(interest_rate ~ annual_income + delinq_2y + inquiries_last_12m + 
+    total_credit_utilized + accounts_opened_24m + total_debit_limit + 
+    num_cc_carrying_balance + num_mort_accounts + account_never_delinq_percent + 
+    loan_amount + term + installment, data = test_set)
+cv_out2 = cv.glmnet(train_matrix,train_set$interest_rate,alpha=1)
+bestlam2 = cv_out2$lambda.min
+bestlam2
+
+#Fit a ridge regression
+ridge_model = glmnet(train_matrix,train_set$interest_rate,alpha = 0)
+#Make predictions
+ridge_pred = predict(ridge_model,s=bestlam2,newx = test_matrix)
+#Calculate test error
+mean((ridge_pred - test_set$interest_rate)^2)
+
+```
+The test error rate is 13.78 for lasso regression when some of the variables are considered in the model. 
+
+We will check the test error rate when all the numeric variables are considered.
+```{r}
+#Ridge Regression
+library(glmnet) 
+#Choose lambda using cross-validation
+set.seed(1)
+#Set up matrices needed for the glmnet functions
+train_matrix1 = model.matrix(interest_rate ~ ., data = train_set)
+test_matrix1 = model.matrix(interest_rate ~ ., data = test_set)
+cv_out3 = cv.glmnet(train_matrix1,train_set$interest_rate,alpha=1)
+bestlam3 = cv_out3$lambda.min
+bestlam3
+
+#Fit a ridge regression
+ridge_model1 = glmnet(train_matrix1,train_set$interest_rate,alpha = 0)
+#Make predictions
+ridge_pred1 = predict(ridge_model1,s=bestlam3,newx = test_matrix1)
+#Calculate test error
+mean((ridge_pred1 - test_set$interest_rate)^2)
+
+
+```
+The test error rate for ridge regression when all the variables are considered is 10.52 which is less than the test error when a subset of variables is considered.
+
+After modelling linear regression and ridge regression based on their test errors we can say that ridge regression tends to work better than linear regression. The low the test error better is the model performance. 
+
+## Visualize the test results and propose enhancements to the model, what would you do if you had more time. Also describe assumptions you made and your approach.
+
+
+
+```{r}
+#Visualization for linear model
+par(mfrow=c(2,2))
+plot(lm_model)
+par(mfrow=c(1,1))
+```
+The residual plot shows us the difference between the observed response and the fitted response values. Looking at the above graph, the left top corner graph shows us that the data points are randomly dispersed around the horizontal axis and that our linear model fits appropriately.
+
+The above visualization shows us that our linear model is fitting appropriately 
+
+```{r}
+#Visualization for ridge model
+
+plot(ridge_model, xvar="lambda")
+
+```
+
+To visualize ridge regression we can use trace plot and know how the coefficient estimates changed as a result of increasing lambda. It shows us that the variable represented by the top red line is utmost importance. Then comes the line with blue,black and green. 
+
+```{r}
+#Visualization for ridge model with specific variables
+
+plot(ridge_model1, xvar="lambda")
+```
+
+The above trace plots shows us that the variable representing green is the most important variable and then comes the red line. It is interesting to see how the variable representing the blue line is seen to be being the highest but it has the downfall by the end of the model and now is the least important variable.
+
+To enhance the implemented models I will use different sets of predictor variables to understand which model gives the least testing error so that it will be the best performing model.
+
+With more time I will model Lasso Regression on the data set. I will also do cross validation. Further more I will work with the variables with character data set to implement classification and logistic regression.
+
